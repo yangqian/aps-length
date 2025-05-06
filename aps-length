@@ -344,11 +344,29 @@ def count_main_text_words_wordcount(tex_lines, opts):
     wordcount = len([line for line in wordcount_log if '3.08633' in line or '3.08635' in line])
     return wordcount
 
+def find_endpoint_line(tex_lines):
+    """Find the line number where acknowledgements or bibliography section begins"""
+    # Look for acknowledgement section
+    ack_indices = [i for i, line in enumerate(tex_lines) if r'\acknowle' in line]
+    
+    # Look for bibliography section
+    bib_indices = [i for i, line in enumerate(tex_lines) if r'\bibliography{' in line or r'\begin{thebibliography}' in line]
+    bib_section_indices = [i for i, line in enumerate(tex_lines) if r'\section{End' in line]
+    
+    # Find all possible endpoints and select the earliest one
+    endpoint_indices = ack_indices + bib_indices + bib_section_indices
+    if endpoint_indices:
+        return min(endpoint_indices)
+    else:
+        return len(tex_lines)  # If no endpoint is found, return the last line of the file
+
 def find_equation_lines(tex_lines):
-    return [i for (i, line) in enumerate(tex_lines) if (r'\begin{equation' in line or
+    endpoint = find_endpoint_line(tex_lines)
+    return [i for (i, line) in enumerate(tex_lines[:endpoint]) if (r'\begin{equation' in line or
                                                         r'\begin{eqnarray' in line or
                                                         r'\begin{align' in line or
                                                         r'\begin{displaymath' in line)]
+
 def count_equation_words(lines, start_line):
     count = 1
     array = False
@@ -388,7 +406,8 @@ def count_equations_words(tex_lines):
     return sum(eqn_words)
 
 def find_table_lines(tex_lines):
-    return [i for (i, line) in enumerate(tex_lines) if r'\begin{tabl' in line]
+    endpoint = find_endpoint_line(tex_lines)
+    return [i for (i, line) in enumerate(tex_lines[:endpoint]) if r'\begin{tabl' in line]
 
 def count_table_words(tex_lines, table_line):
     two_column = 'table*' in tex_lines[table_line]
@@ -419,30 +438,34 @@ def count_figures_words(detex_lines, tex_lines, opts):
         tex_vars = dict(opts.var)
 
     pattern = r'^(?!.*%).*\\includegraphics\[[^\]]*\]\{([^}]*)\}'
-
+    endpoint = find_endpoint_line(tex_lines)
+    
     matches = []
     fig_words = []
 
-    # Loop through each string in the list and apply search
-    for line in tex_lines:
+    # Only check tex lines before the endpoint
+    for line in tex_lines[:endpoint]:
         match = re.search(pattern, line)
         if match:
             matches.append(match.group(1))
 
-    # Loop through the matches and enumerate them
+    # Process matches and count
     for fig_i, filename in enumerate(matches):
-        # filename = fig_line.strip()[1:-1].split()[1]
-        #m = re.findall(r"{\S*\.pdf}|.eps}|.png}|}$", fig_line)
-        #filename = m[0][1:-1]
-
-        this_fig_lines = [ (i, line) for i, line in enumerate(tex_lines) if filename in line and
-                           ('input' in line or 'includegraphics' in line)]
+        this_fig_lines = [(i, line) for i, line in enumerate(tex_lines[:endpoint]) if filename in line and 
+                         ('input' in line or 'includegraphics' in line)]
+        
+        if not this_fig_lines:
+            continue
+            
         (inc_fig_line_no, inc_fig_line) = this_fig_lines[0]
         fig_line_no = inc_fig_line_no
-        while r'\begin{figure' not in tex_lines[fig_line_no]:
+        while fig_line_no > 0 and r'\begin{figure' not in tex_lines[fig_line_no]:
             fig_line_no -= 1
+            
+        if fig_line_no < 0 or r'\begin{figure' not in tex_lines[fig_line_no]:
+            continue
+            
         two_column = 'figure*' in tex_lines[fig_line_no]
-
         subfig = 'subfloat' in tex_lines[inc_fig_line_no]
         newline = r'\\' in tex_lines[inc_fig_line_no]
 
@@ -485,11 +508,6 @@ def count_figures_words(detex_lines, tex_lines, opts):
             height = float(bbox[4])
         else:
             raise ValueError('Unknown figure method "%s"' % opts.figs)
-
-        #if fig_line_no not in figs:
-        #    figs[fig_line_no] = (fig_i, two_column, [(width, height, newline, filename)])
-        #else:
-        #    figs[fig_line_no][2].append((width, height, newline, filename))
 
         aspect = float(width/height)
 
