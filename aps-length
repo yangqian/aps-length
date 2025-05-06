@@ -285,6 +285,10 @@ def count_main_text_words_wordcount(tex_lines, opts):
     mod_tex_lines = [ line.replace(r'\documentclass[', r'\documentclass[nofootbib, ')
                                     for line in mod_tex_lines ]
     # Putting an \end{document} before the bibliography
+    bib_index = [ i for (i, line) in enumerate(mod_tex_lines) if r'\section{End' in line]
+    if bib_index:
+        mod_tex_lines.insert(bib_index[0], r'\end{document}' + '\n')
+    # Putting an \end{document} before the bibliography
     bib_index = [ i for (i, line) in enumerate(mod_tex_lines) if r'\bibliography{' in line]
     if bib_index:
         mod_tex_lines.insert(bib_index[0], r'\end{document}' + '\n')
@@ -302,8 +306,10 @@ def count_main_text_words_wordcount(tex_lines, opts):
     while mod_tex_lines:
         line = mod_tex_lines.pop(0)
         for env in filterenvs:
-            if r'\begin{%s' % env in line:
-                while mod_tex_lines and not r'\end{%s}' % env in line:
+            pattern=f'\\begin{{{env}}}'
+            if pattern in line:
+                end_pattern=f'\\end{{{env}}}'
+                while mod_tex_lines and not end_pattern in line:
                     line = '% ' + line
                     filtered_lines.append(line)
                     line = mod_tex_lines.pop(0)
@@ -412,16 +418,22 @@ def count_figures_words(detex_lines, tex_lines, opts):
     else:
         tex_vars = dict(opts.var)
 
-    # fig_lines = [line for line in detex_lines if '<Picture' in line ]
-    fig_lines = [line for line in tex_lines if 'includegraphics' in line and '%'
-                 not in line]
-    fig_words = []
-    #figs = {}
+    pattern = r'^(?!.*%).*\\includegraphics\[[^\]]*\]\{([^}]*)\}'
 
-    for fig_i, fig_line in enumerate(fig_lines):
+    matches = []
+    fig_words = []
+
+    # Loop through each string in the list and apply search
+    for line in tex_lines:
+        match = re.search(pattern, line)
+        if match:
+            matches.append(match.group(1))
+
+    # Loop through the matches and enumerate them
+    for fig_i, filename in enumerate(matches):
         # filename = fig_line.strip()[1:-1].split()[1]
-        m = re.findall(r"{\S*\.pdf}|.eps}|.png}$", fig_line)
-        filename = m[0][1:-1]
+        #m = re.findall(r"{\S*\.pdf}|.eps}|.png}|}$", fig_line)
+        #filename = m[0][1:-1]
 
         this_fig_lines = [ (i, line) for i, line in enumerate(tex_lines) if filename in line and
                            ('input' in line or 'includegraphics' in line)]
